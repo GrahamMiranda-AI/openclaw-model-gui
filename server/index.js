@@ -147,6 +147,49 @@ app.post('/api/gateway/restart', adminRequired, (_, res) => {
   }
 });
 
+app.post('/api/presets/feather-premium-kimi', adminRequired, (req, res) => {
+  service.upsertProvider({ id: 'featherless', baseUrl: 'https://api.featherless.ai/v1', api: 'openai-completions', apiKey: req.body?.apiKey || undefined });
+  service.registerModel({ providerId: 'featherless', modelId: 'moonshotai/Kimi-K2.5', name: 'Kimi K2.5', contextWindow: 32000, maxTokens: 4096 });
+  service.setPrimary('featherless/moonshotai/Kimi-K2.5');
+  service.clearFallbacks();
+  service.setConcurrency({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
+  res.json({ ok: true, profile: 'feather-premium-kimi', note: 'Safe for 4-unit plans where Kimi consumes 4 units/request.' });
+});
+
+app.post('/api/presets/feather-premium-deepseek', adminRequired, (req, res) => {
+  service.upsertProvider({ id: 'featherless', baseUrl: 'https://api.featherless.ai/v1', api: 'openai-completions', apiKey: req.body?.apiKey || undefined });
+  service.registerModel({ providerId: 'featherless', modelId: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B', name: 'DeepSeekR1', contextWindow: 32000, maxTokens: 4096 });
+  service.setPrimary('featherless/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B');
+  service.clearFallbacks();
+  service.setConcurrency({ maxConcurrent: 2, subagentsMaxConcurrent: 2 });
+  res.json({ ok: true, profile: 'feather-premium-deepseek', note: 'Balanced preset for 4-unit plans.' });
+});
+
+app.get('/api/system/selfcheck', (req, res) => {
+  try {
+    const cfg = service.readConfig();
+    const findings = [];
+    const primary = cfg?.agents?.defaults?.model?.primary;
+    const catalog = cfg?.agents?.defaults?.models || {};
+    if (!primary) findings.push({ level: 'warn', code: 'missing_primary', message: 'No primary model configured.' });
+    if (primary && !catalog[primary]) findings.push({ level: 'warn', code: 'primary_not_in_catalog', message: 'Primary model is not present in catalog map.' });
+
+    const fallbacks = cfg?.agents?.defaults?.model?.fallbacks || [];
+    for (const f of fallbacks) if (!catalog[f]) findings.push({ level: 'warn', code: 'fallback_not_in_catalog', message: `Fallback missing in catalog: ${f}` });
+
+    const feather = cfg?.models?.providers?.featherless;
+    if (feather && (!feather.baseUrl || !feather.apiKey)) findings.push({ level: 'warn', code: 'featherless_incomplete', message: 'Featherless provider exists but baseUrl/apiKey is incomplete.' });
+
+    const max = Number(cfg?.agents?.defaults?.maxConcurrent || 1);
+    const sub = Number(cfg?.agents?.defaults?.subagents?.maxConcurrent || 1);
+    if (max > 1 || sub > 1) findings.push({ level: 'info', code: 'concurrency_above_1', message: `Concurrency is max=${max}, subagents=${sub}. Verify plan limits.` });
+
+    res.json({ ok: true, findings, status: findings.some(f => f.level === 'warn') ? 'attention' : 'healthy' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/models/test', async (req, res) => {
   try {
     const { model, prompt } = z.object({ model: z.string().min(3), prompt: z.string().min(1) }).parse(req.body);

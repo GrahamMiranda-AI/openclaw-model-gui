@@ -30,6 +30,8 @@ function useApi(token) {
     upsertProvider: (payload) => json('/api/providers/upsert', { method:'POST', body:JSON.stringify(payload) }),
     setConcurrency: (payload) => json('/api/concurrency', { method:'POST', body:JSON.stringify(payload) }),
     featherAdvice: (model, planLimit=4) => json(`/api/featherless/advice?model=${encodeURIComponent(model)}&planLimit=${planLimit}`),
+    applyPreset: (name, apiKey) => json(`/api/presets/${name}`, { method:'POST', body:JSON.stringify({ apiKey }) }),
+    selfcheck: () => json('/api/system/selfcheck'),
     backup: () => json('/api/config/backup', { method:'POST' }),
     restart: () => json('/api/gateway/restart', { method:'POST' }),
     testModel: (payload) => json('/api/models/test', { method:'POST', body:JSON.stringify(payload) }),
@@ -67,6 +69,7 @@ export default function App(){
   const [preview, setPreview] = useState('');
   const [testOut, setTestOut] = useState('');
   const [advice, setAdvice] = useState(null);
+  const [selfcheck, setSelfcheck] = useState(null);
   const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
@@ -116,6 +119,16 @@ export default function App(){
     </div>
 
     {!!msg && <div className='card'><div className={msg.startsWith('Error') ? 'err':'ok'}>{msg}</div></div>}
+
+    <div className='card'>
+      <h3>Preflight Safety Checks</h3>
+      <div className='row'>
+        <button className='btn secondary' onClick={async()=>{const r = await api.selfcheck(); setSelfcheck(r);}}>Run Selfcheck</button>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-kimi', provider.apiKey),'Applied Kimi safe preset')}>Apply Feather Premium Kimi Preset</button>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-deepseek', provider.apiKey),'Applied DeepSeek balanced preset')}>Apply Feather Premium DeepSeek Preset</button>
+      </div>
+      <div className='code' style={{marginTop:8}}>{selfcheck ? JSON.stringify(selfcheck, null, 2) : 'Run selfcheck before/after major changes.'}</div>
+    </div>
 
     <div className='card'>
       <h3>Primary + Fallback</h3>

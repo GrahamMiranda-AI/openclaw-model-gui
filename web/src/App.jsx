@@ -1,44 +1,99 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-const api = {
-  getState: () => fetch('/api/models/state').then(r => r.json()),
-  setPrimary: (model) => fetch('/api/models/primary', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ model }) }),
-  addFallback: (model) => fetch('/api/models/fallbacks', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ model }) }),
-  removeFallback: (model) => fetch(`/api/models/fallbacks/${encodeURIComponent(model)}`, { method:'DELETE' }),
-  clearFallbacks: () => fetch('/api/models/fallbacks', { method:'DELETE' }),
-  registerModel: (payload) => fetch('/api/models/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }),
-  deleteModel: (model) => fetch(`/api/models/catalog/${encodeURIComponent(model)}`, { method:'DELETE' }),
-  upsertProvider: (payload) => fetch('/api/providers/upsert', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }),
-  backup: () => fetch('/api/config/backup', { method:'POST' }).then(r=>r.json()),
-  restart: () => fetch('/api/gateway/restart', { method:'POST' }).then(r=>r.json())
-};
+function useApi(token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const json = async (url, options = {}) => {
+    const res = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...headers, ...(options.headers || {}) } });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { const j = await res.json(); msg = j.error || msg; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  };
+  return {
+    login: (password) => json('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+    getState: () => json('/api/models/state'),
+    getBackups: () => json('/api/config/backups'),
+    restoreBackup: (file) => json('/api/config/restore', { method: 'POST', body: JSON.stringify({ file }) }),
+    setPrimary: (model) => json('/api/models/primary', { method:'POST', body:JSON.stringify({ model }) }),
+    addFallback: (model) => json('/api/models/fallbacks', { method:'POST', body:JSON.stringify({ model }) }),
+    removeFallback: (model) => json(`/api/models/fallbacks/${encodeURIComponent(model)}`, { method:'DELETE' }),
+    clearFallbacks: () => json('/api/models/fallbacks', { method:'DELETE' }),
+    registerModel: (payload) => json('/api/models/register', { method:'POST', body:JSON.stringify(payload) }),
+    deleteModel: (model) => json(`/api/models/catalog/${encodeURIComponent(model)}`, { method:'DELETE' }),
+    upsertProvider: (payload) => json('/api/providers/upsert', { method:'POST', body:JSON.stringify(payload) }),
+    backup: () => json('/api/config/backup', { method:'POST' }),
+    restart: () => json('/api/gateway/restart', { method:'POST' })
+  };
+}
+
+function Login({ onLogin }) {
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  return <div className='container'><div className='card' style={{maxWidth:420, margin:'60px auto'}}>
+    <h2>OpenClaw Model GUI Login</h2>
+    <p className='muted'>Use PANEL_PASSWORD configured on server.</p>
+    <input type='password' value={password} onChange={e=>setPassword(e.target.value)} placeholder='Password' />
+    <div className='row' style={{marginTop:10}}>
+      <button className='btn' onClick={async()=>{ try{ setErr(''); await onLogin(password);} catch(e){setErr(e.message);} }}>Sign in</button>
+    </div>
+    {err && <div className='err' style={{marginTop:8}}>{err}</div>}
+  </div></div>;
+}
 
 export default function App(){
+  const [token, setToken] = useState(localStorage.getItem('ocmg_token') || '');
+  const api = useMemo(()=>useApi(token), [token]);
   const [state, setState] = useState(null);
+  const [backups, setBackups] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
   const [provider, setProvider] = useState({ id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions', apiKey:'' });
 
-  const load = async () => setState(await api.getState());
-  useEffect(()=>{ load(); },[]);
+  const load = async () => {
+    const [s, b] = await Promise.all([api.getState(), api.getBackups()]);
+    setState(s); setBackups(b.items || []);
+  };
+
+  useEffect(()=>{ if (token) load().catch(()=>setToken('')); }, [token]);
+
+  async function doLogin(password){
+    const r = await useApi('').login(password);
+    localStorage.setItem('ocmg_token', r.token);
+    setToken(r.token);
+  }
 
   async function run(fn, okText='Saved'){
     setBusy(true); setMsg('');
-    try { const res = await fn(); if (res && !res.ok && res.status) throw new Error((await res.json()).error || 'Request failed'); setMsg(okText); await load(); }
+    try { await fn(); setMsg(okText); await load(); }
     catch(e){ setMsg(`Error: ${e.message}`); }
     finally{ setBusy(false); }
   }
 
+  if (!token) return <Login onLogin={doLogin} />;
   if(!state) return <div className='container'><div className='card'>Loading…</div></div>;
 
   return <div className='container'>
     <div className='card header'>
       <div>
         <h1 style={{margin:'0 0 6px 0'}}>OpenClaw Model Control Panel</h1>
-        <div className='muted'>Professional model management GUI for OpenClaw • by <a href='https://www.grahammiranda.com/' target='_blank'>grahammiranda.com</a></div>
+        <div className='muted'>Project by <a href='https://www.grahammiranda.com/' target='_blank'>grahammiranda.com</a> • Auth + backup/restore + audited changes</div>
       </div>
-      <img src='/logo.jpg' className='logo' alt='logo' />
+      <div className='row'>
+        <img src='/logo.jpg' className='logo' alt='logo' />
+        <button className='btn secondary' onClick={()=>{localStorage.removeItem('ocmg_token');setToken('');}}>Logout</button>
+      </div>
+    </div>
+
+    <div className='card'>
+      <h3>Quick Onboarding Wizard</h3>
+      <div className='grid grid-2'>
+        <button className='btn' disabled={busy} onClick={()=>run(async()=>{await api.upsertProvider({id:'featherless',baseUrl:'https://api.featherless.ai/v1',api:'openai-completions',apiKey:provider.apiKey});await api.registerModel({providerId:'featherless',modelId:'moonshotai/Kimi-K2.5',name:'Kimi K2.5',contextWindow:32000,maxTokens:4096});await api.setPrimary('featherless/moonshotai/Kimi-K2.5');await api.clearFallbacks();},'Kimi profile applied')}>Apply Featherless + Kimi Safe Profile</button>
+        <button className='btn secondary' disabled={busy} onClick={()=>run(async()=>{await api.upsertProvider({id:'featherless',baseUrl:'https://api.featherless.ai/v1',api:'openai-completions',apiKey:provider.apiKey});await api.registerModel({providerId:'featherless',modelId:'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B',name:'DeepSeekR1',contextWindow:32000,maxTokens:4096});await api.setPrimary('featherless/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B');await api.clearFallbacks();},'DeepSeek profile applied')}>Apply Featherless + DeepSeek Safe Profile</button>
+      </div>
+      <p className='muted'>For Kimi plans with strict concurrency units, keep OpenClaw concurrency at 1 and avoid overlapping cron bursts.</p>
     </div>
 
     <div className='card'>
@@ -46,7 +101,7 @@ export default function App(){
         <strong>Primary:</strong> <span>{state.primary || 'Not set'}</span>
         <span className='badge'>Fallbacks: {state.fallbacks.length}</span>
       </div>
-      <div className='muted' style={{marginTop:8}}>Config file: {state.configPath}</div>
+      <div className='muted' style={{marginTop:8}}>Config file: {state.configPath} • Backups: {state.backupDir}</div>
       {!!msg && <div style={{marginTop:10}} className={msg.startsWith('Error') ? 'err':'ok'}>{msg}</div>}
     </div>
 
@@ -94,7 +149,6 @@ export default function App(){
 
       <div className='card'>
         <h3>Provider Settings</h3>
-        <div className='muted'>API keys are saved to OpenClaw config. Keep server access restricted.</div>
         <div className='grid'>
           <input placeholder='provider id' value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} />
           <input placeholder='base URL' value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} />
@@ -103,6 +157,16 @@ export default function App(){
           <button className='btn' disabled={busy || !provider.apiKey} onClick={()=>run(()=>api.upsertProvider(provider),'Provider updated')}>Save Provider</button>
         </div>
       </div>
+    </div>
+
+    <div className='card'>
+      <h3>Backups & Restore</h3>
+      <table className='table'>
+        <thead><tr><th>File</th><th>Size</th><th>Action</th></tr></thead>
+        <tbody>
+          {backups.map(b => <tr key={b.file}><td>{b.file}</td><td>{Math.round(b.size/1024)} KB</td><td><button className='btn secondary' onClick={()=>run(()=>api.restoreBackup(b.file),'Backup restored')}>Restore</button></td></tr>)}
+        </tbody>
+      </table>
     </div>
 
     <div className='card'>

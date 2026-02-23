@@ -24,6 +24,11 @@ This control panel turns those tasks into a structured and safer UI flow.
 
 ## Core features
 
+### 0) Authenticated operator access (Phase 2)
+- Login screen with server-side password (`PANEL_PASSWORD`)
+- Bearer token session for API operations
+- Prevents anonymous config edits
+
 ### 1) Primary model management
 - View current active primary model
 - Switch primary model from model catalog
@@ -44,7 +49,10 @@ This control panel turns those tasks into a structured and safer UI flow.
 
 ### 5) Operational safety actions
 - Create timestamped config backups
+- Restore from backup directly in UI
 - Trigger gateway restart from the panel
+- Automatic snapshot before every mutating config operation
+- Append-only audit log for model/provider changes
 
 ### 6) Professional operator UX
 - Dark, modern panel UI
@@ -97,6 +105,20 @@ npm install
 ---
 
 ## Development
+
+Set a strong panel password before running:
+
+```bash
+export PANEL_PASSWORD='change-this-to-a-strong-password'
+```
+
+Optional:
+
+```bash
+export OPENCLAW_CONFIG_PATH="$HOME/.openclaw/openclaw.json"
+export OPENCLAW_BACKUP_DIR="$HOME/.openclaw/backups"
+export OPENCLAW_AUDIT_LOG="$HOME/.openclaw/logs/model-gui-audit.log"
+```
 
 Run API + web UI together:
 

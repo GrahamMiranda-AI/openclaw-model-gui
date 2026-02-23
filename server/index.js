@@ -1,18 +1,47 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const crypto = require('crypto');
 const { z } = require('zod');
 const { execSync } = require('child_process');
 const service = require('./configService');
 
 const app = express();
 const PORT = process.env.PORT || 8787;
+const PANEL_PASSWORD = process.env.PANEL_PASSWORD || 'change-me-now';
+const sessions = new Set();
 
 app.use(cors());
 app.use(express.json());
 
+function authRequired(req, res, next) {
+  if (req.path === '/api/health' || req.path === '/api/auth/login') return next();
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token || !sessions.has(token)) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
+
+app.use(authRequired);
+
 app.get('/api/health', (_, res) => res.json({ ok: true }));
+app.post('/api/auth/login', (req, res) => {
+  const { password } = z.object({ password: z.string().min(1) }).parse(req.body);
+  if (password !== PANEL_PASSWORD) return res.status(401).json({ error: 'Invalid password' });
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.add(token);
+  res.json({ ok: true, token });
+});
+
 app.get('/api/models/state', (_, res) => res.json(service.getModelState()));
+app.get('/api/config/backups', (req, res) => {
+  const limit = Number(req.query.limit || 30);
+  res.json({ items: service.listBackups(limit) });
+});
+app.post('/api/config/restore', (req, res) => {
+  const { file } = z.object({ file: z.string().min(3) }).parse(req.body);
+  service.restoreBackup(file);
+  res.json({ ok: true });
+});
 app.post('/api/models/primary', (req, res) => {
   const schema = z.object({ model: z.string().min(3) });
   const { model } = schema.parse(req.body);

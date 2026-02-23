@@ -22,6 +22,9 @@ function useApi(token) {
     cronDisable: (id) => json(`/api/automation/cron/${encodeURIComponent(id)}/disable`, { method:'POST' }),
     cronDisableAll: () => json('/api/automation/cron/disable-all', { method:'POST' }),
     lowTrafficMode: () => json('/api/automation/low-traffic-mode', { method:'POST' }),
+    restartGateway: () => json('/api/system/restart-gateway', { method:'POST' }),
+    doctor: () => json('/api/system/doctor'),
+    capacityAdvice: (planCapacity=4) => json(`/api/system/capacity-advice?planCapacity=${planCapacity}`),
     getBackups: () => json('/api/config/backups'),
     restorePreview: (file) => json('/api/config/restore-preview', { method:'POST', body: JSON.stringify({ file }) }),
     restoreBackup: (file) => json('/api/config/restore', { method: 'POST', body: JSON.stringify({ file }) }),
@@ -74,6 +77,9 @@ export default function App(){
   const [testOut, setTestOut] = useState('');
   const [advice, setAdvice] = useState(null);
   const [selfcheck, setSelfcheck] = useState(null);
+  const [doctor, setDoctor] = useState(null);
+  const [capacity, setCapacity] = useState(null);
+  const [planCapacity, setPlanCapacity] = useState(4);
   const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
   const [cronJobs, setCronJobs] = useState([]);
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
@@ -131,7 +137,15 @@ export default function App(){
       <div className='row'>
         <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.lowTrafficMode(),'Low-traffic mode enabled (cron paused, concurrency=1)')}>Enable Low-Traffic Mode</button>
         <button className='btn danger' disabled={!isAdmin||busy} onClick={()=>run(()=>api.cronDisableAll(),'All cron jobs disabled')}>Disable All Cron Jobs</button>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.restartGateway(),'Gateway restarted')}>Restart Gateway</button>
+        <button className='btn secondary' onClick={async()=>setDoctor(await api.doctor())}>Run Doctor</button>
       </div>
+      <div className='row' style={{marginTop:8}}>
+        <input type='number' min='1' max='100' value={planCapacity} onChange={e=>setPlanCapacity(Number(e.target.value)||1)} style={{maxWidth:180}} />
+        <button className='btn secondary' onClick={async()=>setCapacity(await api.capacityAdvice(planCapacity))}>Check Capacity Advice</button>
+      </div>
+      <div className='code' style={{marginTop:8}}>{capacity ? JSON.stringify(capacity, null, 2) : 'Capacity advisor is provider-agnostic: set your plan/request capacity and check safe concurrency.'}</div>
+      <div className='code' style={{marginTop:8}}>{doctor ? (doctor.summary?.length ? doctor.summary.join('\n') : 'No warnings found by doctor.') : 'Run Doctor for quick health warnings.'}</div>
       <table className='table' style={{marginTop:8}}>
         <thead><tr><th>Name</th><th>ID</th><th>Enabled</th><th>Action</th></tr></thead>
         <tbody>{cronJobs.map(j => <tr key={j.id}><td>{j.name || '(unnamed)'}</td><td>{j.id}</td><td>{String(j.enabled)}</td><td>
@@ -197,7 +211,7 @@ export default function App(){
 
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
           <h4 style={{margin:'4px 0'}}>Featherless Concurrency Safety</h4>
-          <div className='muted'>For Feather Premium (4 units): Kimi-K2.5 usually costs 4 units/request, DeepSeek/GLM often cost 1 unit/request.</div>
+          <div className='muted'>Generic capacity guidance: different models/providers consume different request capacity. Set conservative concurrency and validate with Capacity Advice + live test calls.</div>
           <div className='row'>
             <input type='number' min='1' max='20' value={concurrency.maxConcurrent} onChange={e=>setConcurrency({...concurrency,maxConcurrent:Number(e.target.value)})} />
             <input type='number' min='1' max='20' value={concurrency.subagentsMaxConcurrent} onChange={e=>setConcurrency({...concurrency,subagentsMaxConcurrent:Number(e.target.value)})} />

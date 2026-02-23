@@ -178,6 +178,51 @@ app.post('/api/automation/low-traffic-mode', adminRequired, (req, res) => {
   res.json({ ok: true, disabledCronJobs: jobs.filter(j=>j.enabled).map(j=>j.id) });
 });
 
+app.post('/api/system/restart-gateway', adminRequired, (_, res) => {
+  try {
+    execSync('pkill -f "openclaw gateway" || true');
+    execSync('nohup openclaw gateway >/tmp/openclaw-gateway.out 2>&1 &');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/system/doctor', (req, res) => {
+  try {
+    const text = execSync('openclaw status', { encoding: 'utf8' });
+    const warnings = text.split('\n').filter(l => l.includes('WARN') || l.includes('Error') || l.includes('error'));
+    res.json({ ok: true, summary: warnings.slice(0, 30), raw: text.slice(0, 12000) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/system/capacity-advice', (req, res) => {
+  const cfg = service.readConfig();
+  const primary = cfg?.agents?.defaults?.model?.primary || '';
+  const maxConcurrent = Number(cfg?.agents?.defaults?.maxConcurrent || 1);
+  const subMax = Number(cfg?.agents?.defaults?.subagents?.maxConcurrent || 1);
+  const planCapacity = Number(req.query.planCapacity || 4);
+
+  const capacityCostHints = {
+    'moonshotai/Kimi-K2.5': 4,
+    'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B': 1,
+    'zai-org/GLM-4.6': 1,
+    'zai-org/GLM-4.7': 1
+  };
+
+  const modelParts = String(primary).split('/');
+  const modelId = modelParts.length > 1 ? modelParts.slice(1).join('/') : primary;
+  const estimatedCostPerRequest = capacityCostHints[modelId] || 1;
+  const safeMax = Math.max(1, Math.floor(planCapacity / estimatedCostPerRequest));
+  const warning = (maxConcurrent > safeMax || subMax > safeMax)
+    ? `Configured concurrency may be too high for current model/capacity. Recommended <= ${safeMax}.`
+    : null;
+
+  res.json({ ok: true, providerAgnostic: true, primary, planCapacity, estimatedCostPerRequest, safeMaxConcurrent: safeMax, current: { maxConcurrent, subMax }, warning });
+});
+
 app.post('/api/presets/feather-premium-kimi', adminRequired, (req, res) => {
   service.upsertProvider({ id: 'featherless', baseUrl: 'https://api.featherless.ai/v1', api: 'openai-completions', apiKey: req.body?.apiKey || undefined });
   service.registerModel({ providerId: 'featherless', modelId: 'moonshotai/Kimi-K2.5', name: 'Kimi K2.5', contextWindow: 32000, maxTokens: 4096 });

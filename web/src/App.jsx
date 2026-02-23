@@ -67,6 +67,7 @@ function Login({ onLogin }) {
 
 export default function App(){
   const [token, setToken] = useState(localStorage.getItem('ocmg_token') || '');
+  const [theme, setTheme] = useState(localStorage.getItem('ocmg_theme') || 'light');
   const [me, setMe] = useState(null);
   const api = useMemo(()=>useApi(token), [token]);
   const [state, setState] = useState(null);
@@ -91,6 +92,7 @@ export default function App(){
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
   const [form, setForm] = useState({ providerId:'openai', modelId:'gpt-4o-mini', name:'GPT-4o Mini', contextWindow:32000, maxTokens:4096 });
+  const [deleteModel, setDeleteModel] = useState('');
   const [provider, setProvider] = useState({ id:'openai', baseUrl:'https://api.openai.com/v1', api:'openai-completions', apiKey:'' });
 
   const isAdmin = me?.role === 'admin';
@@ -111,6 +113,10 @@ export default function App(){
   };
 
   useEffect(()=>{ if (token) load().catch(()=>setToken('')); }, [token]);
+  useEffect(()=>{
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('ocmg_theme', theme);
+  }, [theme]);
 
   async function doLogin(username, password){
     const r = await useApi('').login(username, password);
@@ -136,6 +142,7 @@ export default function App(){
       </div>
       <div className='row'>
         <img src='/logo.jpg' className='logo' alt='logo' />
+        <button className='btn secondary' onClick={()=>setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? 'Dark mode' : 'Light mode'}</button>
         <button className='btn secondary' onClick={()=>{localStorage.removeItem('ocmg_token');setToken('');}}>Logout</button>
       </div>
     </div>
@@ -252,6 +259,15 @@ export default function App(){
           <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='Model ID from provider (example: moonshotai/Kimi-K2.5)' />
           <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='Display name in GUI (example: Kimi K2.5)' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>
+
+          <div className='row'>
+            <select value={deleteModel} onChange={e=>setDeleteModel(e.target.value)}>
+              <option value=''>Select model to delete</option>
+              {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className='btn danger' disabled={!isAdmin||busy||!deleteModel||deleteModel===state.primary} onClick={()=>run(()=>api.deleteModel(deleteModel),'Model deleted from catalog')}>Delete Model</button>
+          </div>
+          <div className='muted'>You can add models with Register Model and remove them here. Primary model cannot be deleted until you switch primary.</div>
 
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
 

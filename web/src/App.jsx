@@ -90,8 +90,8 @@ export default function App(){
   const [pw, setPw] = useState({ currentPassword:'', newPassword:'', targetUser:'' });
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
-  const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
-  const [provider, setProvider] = useState({ id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions', apiKey:'' });
+  const [form, setForm] = useState({ providerId:'openai', modelId:'gpt-4o-mini', name:'GPT-4o Mini', contextWindow:32000, maxTokens:4096 });
+  const [provider, setProvider] = useState({ id:'openai', baseUrl:'https://api.openai.com/v1', api:'openai-completions', apiKey:'' });
 
   const isAdmin = me?.role === 'admin';
 
@@ -171,8 +171,8 @@ export default function App(){
       <h3>Preflight Safety Checks</h3>
       <div className='row'>
         <button className='btn secondary' onClick={async()=>{const r = await api.selfcheck(); setSelfcheck(r);}}>Run Selfcheck</button>
-        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-kimi', provider.apiKey),'Applied Kimi safe preset')}>Apply Feather Premium Kimi Preset</button>
-        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-deepseek', provider.apiKey),'Applied DeepSeek balanced preset')}>Apply Feather Premium DeepSeek Preset</button>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-kimi', provider.apiKey),'Applied Kimi performance preset')}>Apply Kimi Performance Preset</button>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.applyPreset('feather-premium-deepseek', provider.apiKey),'Applied DeepSeek balanced preset')}>Apply DeepSeek Balanced Preset</button>
       </div>
       <div className='code' style={{marginTop:8}}>{selfcheck ? JSON.stringify(selfcheck, null, 2) : 'Run selfcheck before/after major changes.'}</div>
     </div>
@@ -227,19 +227,20 @@ export default function App(){
       <div className='card'>
         <h3>Provider + Model Setup (Guided)</h3>
         <div className='muted'>
-          <b>Provider</b> = where requests are sent (example: Featherless, OpenAI).<br/>
+          <b>Provider</b> = where requests are sent (example: OpenAI, Anthropic-compatible, OpenRouter-compatible).<br/>
           <b>API mode</b> = request format/protocol (usually <code>openai-completions</code>).<br/>
           <b>API key</b> = your private secret token for that provider.
         </div>
 
         <div className='row' style={{marginTop:8}}>
-          <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions' })}>Use Featherless Defaults</button>
           <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'openai', baseUrl:'https://api.openai.com/v1', api:'openai-completions' })}>Use OpenAI Defaults</button>
+          <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'anthropic-compat', baseUrl:'https://api.anthropic.com/v1', api:'openai-completions' })}>Use Anthropic-Compatible Defaults</button>
+          <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'openrouter', baseUrl:'https://openrouter.ai/api/v1', api:'openai-completions' })}>Use OpenRouter Defaults</button>
         </div>
 
         <div className='grid' style={{marginTop:8}}>
-          <input value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} placeholder='Provider ID (example: featherless)' />
-          <input value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} placeholder='Base URL (example: https://api.featherless.ai/v1)' />
+          <input value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} placeholder='Provider ID (example: openai)' />
+          <input value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} placeholder='Base URL (example: https://api.openai.com/v1)' />
           <input value={provider.api} onChange={e=>setProvider({...provider,api:e.target.value})} placeholder='API mode (usually: openai-completions)' />
           <input value={provider.apiKey} onChange={e=>setProvider({...provider,apiKey:e.target.value})} placeholder='API key (secret token, starts with rc_ / sk_ / etc.)' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.upsertProvider(provider),'Provider saved')}>Save Provider</button>
@@ -247,7 +248,7 @@ export default function App(){
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
 
           <div className='muted'><b>Register model</b> means adding a model into your local OpenClaw catalog so it appears in dropdowns and can be selected as primary/fallback.</div>
-          <input value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} placeholder='Model provider ID (example: featherless)' />
+          <input value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} placeholder='Model provider ID (example: openai)' />
           <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='Model ID from provider (example: moonshotai/Kimi-K2.5)' />
           <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='Display name in GUI (example: Kimi K2.5)' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>

@@ -225,31 +225,50 @@ export default function App(){
 
     <div className='grid grid-2'>
       <div className='card'>
-        <h3>Provider + Model Setup</h3>
-        <div className='grid'>
-          <input value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} placeholder='provider id' />
-          <input value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} placeholder='base url' />
-          <input value={provider.api} onChange={e=>setProvider({...provider,api:e.target.value})} placeholder='api' />
-          <input value={provider.apiKey} onChange={e=>setProvider({...provider,apiKey:e.target.value})} placeholder='api key' />
+        <h3>Provider + Model Setup (Guided)</h3>
+        <div className='muted'>
+          <b>Provider</b> = where requests are sent (example: Featherless, OpenAI).<br/>
+          <b>API mode</b> = request format/protocol (usually <code>openai-completions</code>).<br/>
+          <b>API key</b> = your private secret token for that provider.
+        </div>
+
+        <div className='row' style={{marginTop:8}}>
+          <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions' })}>Use Featherless Defaults</button>
+          <button className='btn secondary' onClick={()=>setProvider({ ...provider, id:'openai', baseUrl:'https://api.openai.com/v1', api:'openai-completions' })}>Use OpenAI Defaults</button>
+        </div>
+
+        <div className='grid' style={{marginTop:8}}>
+          <input value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} placeholder='Provider ID (example: featherless)' />
+          <input value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} placeholder='Base URL (example: https://api.featherless.ai/v1)' />
+          <input value={provider.api} onChange={e=>setProvider({...provider,api:e.target.value})} placeholder='API mode (usually: openai-completions)' />
+          <input value={provider.apiKey} onChange={e=>setProvider({...provider,apiKey:e.target.value})} placeholder='API key (secret token, starts with rc_ / sk_ / etc.)' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.upsertProvider(provider),'Provider saved')}>Save Provider</button>
+
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
-          <input value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} placeholder='provider id' />
-          <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='model id' />
-          <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='name' />
+
+          <div className='muted'><b>Register model</b> means adding a model into your local OpenClaw catalog so it appears in dropdowns and can be selected as primary/fallback.</div>
+          <input value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} placeholder='Model provider ID (example: featherless)' />
+          <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='Model ID from provider (example: moonshotai/Kimi-K2.5)' />
+          <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='Display name in GUI (example: Kimi K2.5)' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>
 
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
-          <h4 style={{margin:'4px 0'}}>Concurrency Safety</h4>
-          <div className='muted'>Generic capacity guidance: different models/providers consume different request capacity. Set conservative concurrency and validate with Capacity Advice + live test calls.</div>
+
+          <h4 style={{margin:'4px 0'}}>Concurrency Safety (Provider-Agnostic)</h4>
+          <div className='muted'>Lower values are safer. If your provider has strict rate/concurrency limits, keep both settings low (often 1/1) and increase gradually.</div>
           <div className='row'>
-            <input type='number' min='1' max='20' value={concurrency.maxConcurrent} onChange={e=>setConcurrency({...concurrency,maxConcurrent:Number(e.target.value)})} />
-            <input type='number' min='1' max='20' value={concurrency.subagentsMaxConcurrent} onChange={e=>setConcurrency({...concurrency,subagentsMaxConcurrent:Number(e.target.value)})} />
+            <input type='number' min='1' max='20' value={concurrency.maxConcurrent} onChange={e=>setConcurrency({...concurrency,maxConcurrent:Number(e.target.value)})} placeholder='Agent max concurrent runs' />
+            <input type='number' min='1' max='20' value={concurrency.subagentsMaxConcurrent} onChange={e=>setConcurrency({...concurrency,subagentsMaxConcurrent:Number(e.target.value)})} placeholder='Subagent max concurrent runs' />
             <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.setConcurrency(concurrency),'Concurrency updated')}>Save Concurrency</button>
           </div>
           <div className='row'>
-            <button className='btn secondary' disabled={busy||!test.model} onClick={async()=>{const r=await api.featherAdvice(test.model,4);setAdvice(r);}}>Check Feather Advice</button>
+            <select value={test.model} onChange={e=>setTest({...test,model:e.target.value})}>
+              <option value=''>Select model for capacity estimate</option>
+              {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className='btn secondary' disabled={busy||!test.model} onClick={async()=>{const r=await api.featherAdvice(test.model, planCapacity || 4);setAdvice(r);}}>Estimate Safe Concurrency</button>
           </div>
-          <div className='code'>{advice ? `Model cost: ${advice.modelConcurrencyCost} units | Safe maxConcurrent: ${advice.safeMaxConcurrent}\n${advice.warning || 'Current settings look safe.'}` : 'Select a model and click Check Feather Advice.'}</div>
+          <div className='code'>{advice ? `Estimated cost per request: ${advice.modelConcurrencyCost} unit(s) | Suggested safe max concurrency: ${advice.safeMaxConcurrent}\n${advice.warning || 'Current settings look safe for this estimate.'}` : 'Pick a model and click Estimate Safe Concurrency.'}</div>
         </div>
       </div>
 

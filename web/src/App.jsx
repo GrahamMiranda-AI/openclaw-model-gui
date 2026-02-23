@@ -12,9 +12,14 @@ function useApi(token) {
     return res.json();
   };
   return {
-    login: (password) => json('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
+    login: (username, password) => json('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+    me: () => json('/api/auth/me'),
+    users: () => json('/api/users'),
+    saveUser: (payload) => json('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
+    delUser: (username) => json(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
     getState: () => json('/api/models/state'),
     getBackups: () => json('/api/config/backups'),
+    restorePreview: (file) => json('/api/config/restore-preview', { method:'POST', body: JSON.stringify({ file }) }),
     restoreBackup: (file) => json('/api/config/restore', { method: 'POST', body: JSON.stringify({ file }) }),
     setPrimary: (model) => json('/api/models/primary', { method:'POST', body:JSON.stringify({ model }) }),
     addFallback: (model) => json('/api/models/fallbacks', { method:'POST', body:JSON.stringify({ model }) }),
@@ -24,19 +29,23 @@ function useApi(token) {
     deleteModel: (model) => json(`/api/models/catalog/${encodeURIComponent(model)}`, { method:'DELETE' }),
     upsertProvider: (payload) => json('/api/providers/upsert', { method:'POST', body:JSON.stringify(payload) }),
     backup: () => json('/api/config/backup', { method:'POST' }),
-    restart: () => json('/api/gateway/restart', { method:'POST' })
+    restart: () => json('/api/gateway/restart', { method:'POST' }),
+    testModel: (payload) => json('/api/models/test', { method:'POST', body:JSON.stringify(payload) }),
+    logs: (type='gateway') => json(`/api/logs?type=${type}`)
   };
 }
 
 function Login({ onLogin }) {
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   return <div className='container'><div className='card' style={{maxWidth:420, margin:'60px auto'}}>
     <h2>OpenClaw Model GUI Login</h2>
-    <p className='muted'>Use PANEL_PASSWORD configured on server.</p>
+    <input value={username} onChange={e=>setUsername(e.target.value)} placeholder='Username' />
+    <div style={{height:8}} />
     <input type='password' value={password} onChange={e=>setPassword(e.target.value)} placeholder='Password' />
     <div className='row' style={{marginTop:10}}>
-      <button className='btn' onClick={async()=>{ try{ setErr(''); await onLogin(password);} catch(e){setErr(e.message);} }}>Sign in</button>
+      <button className='btn' onClick={async()=>{ try{ setErr(''); await onLogin(username, password);} catch(e){setErr(e.message);} }}>Sign in</button>
     </div>
     {err && <div className='err' style={{marginTop:8}}>{err}</div>}
   </div></div>;
@@ -44,25 +53,39 @@ function Login({ onLogin }) {
 
 export default function App(){
   const [token, setToken] = useState(localStorage.getItem('ocmg_token') || '');
+  const [me, setMe] = useState(null);
   const api = useMemo(()=>useApi(token), [token]);
   const [state, setState] = useState(null);
   const [backups, setBackups] = useState([]);
+  const [users, setUsers] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [logs, setLogs] = useState('');
+  const [audit, setAudit] = useState('');
+  const [preview, setPreview] = useState('');
+  const [testOut, setTestOut] = useState('');
+  const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
+  const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
   const [provider, setProvider] = useState({ id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions', apiKey:'' });
 
+  const isAdmin = me?.role === 'admin';
+
   const load = async () => {
-    const [s, b] = await Promise.all([api.getState(), api.getBackups()]);
-    setState(s); setBackups(b.items || []);
+    const [s, b, m] = await Promise.all([api.getState(), api.getBackups(), api.me()]);
+    setState(s); setBackups(b.items || []); setMe(m.user);
+    if (m.user?.role === 'admin') {
+      const u = await api.users();
+      setUsers(u.users || []);
+    }
   };
 
   useEffect(()=>{ if (token) load().catch(()=>setToken('')); }, [token]);
 
-  async function doLogin(password){
-    const r = await useApi('').login(password);
+  async function doLogin(username, password){
+    const r = await useApi('').login(username, password);
     localStorage.setItem('ocmg_token', r.token);
-    setToken(r.token);
+    setToken(r.token); setMe(r.user);
   }
 
   async function run(fn, okText='Saved'){
@@ -79,7 +102,7 @@ export default function App(){
     <div className='card header'>
       <div>
         <h1 style={{margin:'0 0 6px 0'}}>OpenClaw Model Control Panel</h1>
-        <div className='muted'>Project by <a href='https://www.grahammiranda.com/' target='_blank'>grahammiranda.com</a> • Auth + backup/restore + audited changes</div>
+        <div className='muted'>Logged in as <b>{me?.username}</b> ({me?.role}) • by <a href='https://www.grahammiranda.com/' target='_blank'>grahammiranda.com</a></div>
       </div>
       <div className='row'>
         <img src='/logo.jpg' className='logo' alt='logo' />
@@ -87,96 +110,99 @@ export default function App(){
       </div>
     </div>
 
-    <div className='card'>
-      <h3>Quick Onboarding Wizard</h3>
-      <div className='grid grid-2'>
-        <button className='btn' disabled={busy} onClick={()=>run(async()=>{await api.upsertProvider({id:'featherless',baseUrl:'https://api.featherless.ai/v1',api:'openai-completions',apiKey:provider.apiKey});await api.registerModel({providerId:'featherless',modelId:'moonshotai/Kimi-K2.5',name:'Kimi K2.5',contextWindow:32000,maxTokens:4096});await api.setPrimary('featherless/moonshotai/Kimi-K2.5');await api.clearFallbacks();},'Kimi profile applied')}>Apply Featherless + Kimi Safe Profile</button>
-        <button className='btn secondary' disabled={busy} onClick={()=>run(async()=>{await api.upsertProvider({id:'featherless',baseUrl:'https://api.featherless.ai/v1',api:'openai-completions',apiKey:provider.apiKey});await api.registerModel({providerId:'featherless',modelId:'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B',name:'DeepSeekR1',contextWindow:32000,maxTokens:4096});await api.setPrimary('featherless/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B');await api.clearFallbacks();},'DeepSeek profile applied')}>Apply Featherless + DeepSeek Safe Profile</button>
-      </div>
-      <p className='muted'>For Kimi plans with strict concurrency units, keep OpenClaw concurrency at 1 and avoid overlapping cron bursts.</p>
-    </div>
+    {!!msg && <div className='card'><div className={msg.startsWith('Error') ? 'err':'ok'}>{msg}</div></div>}
 
     <div className='card'>
-      <div className='row'>
-        <strong>Primary:</strong> <span>{state.primary || 'Not set'}</span>
-        <span className='badge'>Fallbacks: {state.fallbacks.length}</span>
-      </div>
-      <div className='muted' style={{marginTop:8}}>Config file: {state.configPath} • Backups: {state.backupDir}</div>
-      {!!msg && <div style={{marginTop:10}} className={msg.startsWith('Error') ? 'err':'ok'}>{msg}</div>}
-    </div>
-
-    <div className='grid grid-2'>
-      <div className='card'>
-        <h3>Switch Primary Model</h3>
-        <select onChange={e=>setForm({...form, fullModel:e.target.value})} value={form.fullModel || state.primary || ''}>
-          {[...new Set(state.catalog)].map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <div style={{marginTop:10}} className='row'>
-          <button className='btn' disabled={busy} onClick={()=>run(()=>api.setPrimary(form.fullModel || state.primary),'Primary updated')}>Set Primary</button>
-          <button className='btn secondary' disabled={busy} onClick={()=>run(()=>api.backup(),'Backup created')}>Create Backup</button>
-          <button className='btn secondary' disabled={busy} onClick={()=>run(()=>api.restart(),'Gateway restart command sent')}>Restart Gateway</button>
-        </div>
-      </div>
-
-      <div className='card'>
-        <h3>Fallback Models</h3>
-        <div className='row'>
-          <select onChange={e=>setForm({...form, fallbackModel:e.target.value})} value={form.fallbackModel || ''}>
-            <option value=''>Select model</option>
-            {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+      <h3>Primary + Fallback</h3>
+      <div className='row'><strong>Primary:</strong> {state.primary}<span className='badge'>Fallbacks: {state.fallbacks.length}</span></div>
+      <div className='grid grid-2' style={{marginTop:8}}>
+        <div>
+          <select onChange={e=>setForm({...form, fullModel:e.target.value})} value={form.fullModel || state.primary || ''}>
+            {[...new Set(state.catalog)].map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <button className='btn' disabled={busy || !form.fallbackModel} onClick={()=>run(()=>api.addFallback(form.fallbackModel),'Fallback added')}>Add</button>
-          <button className='btn danger' disabled={busy} onClick={()=>run(()=>api.clearFallbacks(),'Fallbacks cleared')}>Clear All</button>
+          <div className='row' style={{marginTop:8}}>
+            <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.setPrimary(form.fullModel || state.primary),'Primary updated')}>Set Primary</button>
+            <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.backup(),'Backup created')}>Backup</button>
+            <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.restart(),'Gateway restarted')}>Restart</button>
+          </div>
         </div>
-        <table className='table' style={{marginTop:8}}><tbody>
-          {state.fallbacks.map(f => <tr key={f}><td>{f}</td><td><button className='btn danger' onClick={()=>run(()=>api.removeFallback(f),'Fallback removed')}>Remove</button></td></tr>)}
-        </tbody></table>
+        <div>
+          <div className='row'>
+            <select onChange={e=>setForm({...form, fallbackModel:e.target.value})} value={form.fallbackModel || ''}>
+              <option value=''>Select fallback model</option>
+              {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className='btn' disabled={!isAdmin||busy||!form.fallbackModel} onClick={()=>run(()=>api.addFallback(form.fallbackModel),'Fallback added')}>Add</button>
+          </div>
+          <table className='table'><tbody>{state.fallbacks.map(f => <tr key={f}><td>{f}</td><td><button className='btn danger' disabled={!isAdmin||busy} onClick={()=>run(()=>api.removeFallback(f),'Removed')}>Remove</button></td></tr>)}</tbody></table>
+        </div>
       </div>
     </div>
 
     <div className='grid grid-2'>
       <div className='card'>
-        <h3>Add / Register Model</h3>
+        <h3>Provider + Model Setup</h3>
         <div className='grid'>
-          <input placeholder='provider id' value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} />
-          <input placeholder='model id e.g. moonshotai/Kimi-K2.5' value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} />
-          <input placeholder='display name' value={form.name} onChange={e=>setForm({...form,name:e.target.value})} />
-          <input type='number' placeholder='context window' value={form.contextWindow} onChange={e=>setForm({...form,contextWindow:+e.target.value})} />
-          <input type='number' placeholder='max tokens' value={form.maxTokens} onChange={e=>setForm({...form,maxTokens:+e.target.value})} />
-          <button className='btn' disabled={busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register model</button>
+          <input value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} placeholder='provider id' />
+          <input value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} placeholder='base url' />
+          <input value={provider.api} onChange={e=>setProvider({...provider,api:e.target.value})} placeholder='api' />
+          <input value={provider.apiKey} onChange={e=>setProvider({...provider,apiKey:e.target.value})} placeholder='api key' />
+          <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.upsertProvider(provider),'Provider saved')}>Save Provider</button>
+          <hr style={{borderColor:'#2c3e75', width:'100%'}} />
+          <input value={form.providerId} onChange={e=>setForm({...form,providerId:e.target.value})} placeholder='provider id' />
+          <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='model id' />
+          <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='name' />
+          <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>
         </div>
       </div>
 
       <div className='card'>
-        <h3>Provider Settings</h3>
-        <div className='grid'>
-          <input placeholder='provider id' value={provider.id} onChange={e=>setProvider({...provider,id:e.target.value})} />
-          <input placeholder='base URL' value={provider.baseUrl} onChange={e=>setProvider({...provider,baseUrl:e.target.value})} />
-          <input placeholder='api mode' value={provider.api} onChange={e=>setProvider({...provider,api:e.target.value})} />
-          <input placeholder='api key' value={provider.apiKey} onChange={e=>setProvider({...provider,apiKey:e.target.value})} />
-          <button className='btn' disabled={busy || !provider.apiKey} onClick={()=>run(()=>api.upsertProvider(provider),'Provider updated')}>Save Provider</button>
-        </div>
+        <h3>Test Model Call</h3>
+        <select value={test.model} onChange={e=>setTest({...test,model:e.target.value})}>
+          <option value=''>Select model</option>
+          {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <textarea rows='4' value={test.prompt} onChange={e=>setTest({...test,prompt:e.target.value})} />
+        <div className='row'><button className='btn' disabled={busy||!test.model} onClick={()=>run(async()=>{const r=await api.testModel(test);setTestOut(r.output||'');},'Model test completed')}>Run Test</button></div>
+        <div className='code' style={{marginTop:8}}>{testOut || 'No test output yet.'}</div>
       </div>
     </div>
 
     <div className='card'>
-      <h3>Backups & Restore</h3>
+      <h3>Backup Restore with Diff Preview</h3>
       <table className='table'>
-        <thead><tr><th>File</th><th>Size</th><th>Action</th></tr></thead>
-        <tbody>
-          {backups.map(b => <tr key={b.file}><td>{b.file}</td><td>{Math.round(b.size/1024)} KB</td><td><button className='btn secondary' onClick={()=>run(()=>api.restoreBackup(b.file),'Backup restored')}>Restore</button></td></tr>)}
-        </tbody>
+        <thead><tr><th>File</th><th>Action</th></tr></thead>
+        <tbody>{backups.map(b => <tr key={b.file}><td>{b.file}</td><td className='row'><button className='btn secondary' onClick={async()=>{const r=await api.restorePreview(b.file);setPreview(r.diff);}}>Preview Diff</button><button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.restoreBackup(b.file),'Backup restored')}>Restore</button></td></tr>)}</tbody>
       </table>
+      <div className='code'>{preview || 'Select a backup and click Preview Diff.'}</div>
     </div>
 
-    <div className='card'>
-      <h3>Model Catalog</h3>
-      <table className='table'>
-        <thead><tr><th>Model</th><th>Action</th></tr></thead>
-        <tbody>
-        {state.catalog.map(m => <tr key={m}><td>{m}</td><td><button className='btn danger' disabled={busy || m===state.primary} onClick={()=>run(()=>api.deleteModel(m),'Model removed from catalog')}>Delete</button></td></tr>)}
-        </tbody>
-      </table>
+    <div className='grid grid-2'>
+      <div className='card'>
+        <h3>Live Logs (Gateway)</h3>
+        <div className='row'><button className='btn secondary' onClick={async()=>setLogs((await api.logs('gateway')).text)}>Refresh</button></div>
+        <div className='code'>{logs || 'No logs loaded yet.'}</div>
+      </div>
+      <div className='card'>
+        <h3>Audit Log</h3>
+        <div className='row'><button className='btn secondary' onClick={async()=>setAudit((await api.logs('audit')).text)}>Refresh</button></div>
+        <div className='code'>{audit || 'No audit logs loaded yet.'}</div>
+      </div>
     </div>
+
+    {isAdmin && <div className='card'>
+      <h3>User Management</h3>
+      <div className='grid grid-2'>
+        <div>
+          <input placeholder='username' value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})} />
+          <input placeholder='password (min 6)' type='password' value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} />
+          <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})}><option value='viewer'>viewer</option><option value='admin'>admin</option></select>
+          <button className='btn' disabled={busy} onClick={()=>run(()=>api.saveUser(newUser),'User saved')}>Save user</button>
+        </div>
+        <div>
+          <table className='table'><thead><tr><th>User</th><th>Role</th><th></th></tr></thead><tbody>{users.map(u=><tr key={u.username}><td>{u.username}</td><td>{u.role}</td><td><button className='btn danger' onClick={()=>run(()=>api.delUser(u.username),'User deleted')}>Delete</button></td></tr>)}</tbody></table>
+        </div>
+      </div>
+    </div>}
   </div>;
 }

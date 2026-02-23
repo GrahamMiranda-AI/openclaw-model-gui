@@ -24,6 +24,13 @@ This control panel turns those tasks into a structured and safer UI flow.
 
 ## Core features
 
+### Phase 3 additions
+- Multi-user auth with roles (`admin`, `viewer`)
+- User management UI (admin only)
+- Built-in model test-call endpoint + UI output
+- Live gateway log viewer + audit log viewer
+- Restore diff preview before applying backup
+
 ### 0) Authenticated operator access (Phase 2)
 - Login screen with server-side password (`PANEL_PASSWORD`)
 - Bearer token session for API operations

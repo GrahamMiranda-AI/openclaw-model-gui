@@ -18,7 +18,7 @@ test('GET /api/models/state (auth flow)', async () => {
   delete require.cache[require.resolve('../index')];
   const app = require('../index');
 
-  const login = await request(app).post('/api/auth/login').send({ password: 'test-pass' });
+  const login = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'test-pass' });
   assert.equal(login.statusCode, 200);
   assert.ok(login.body.token);
 

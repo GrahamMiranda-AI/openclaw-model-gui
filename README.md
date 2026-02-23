@@ -149,6 +149,22 @@ Then open:
 
 - http://localhost:8787
 
+### View the current panel password (server)
+
+If you launched with `.env.runtime` as shown in this project setup, you can inspect the configured password:
+
+```bash
+cat /root/.openclaw/workspace/openclaw-model-gui/.env.runtime
+```
+
+Or print only the password line:
+
+```bash
+grep '^PANEL_PASSWORD=' /root/.openclaw/workspace/openclaw-model-gui/.env.runtime
+```
+
+> Security note: treat this as sensitive output. Avoid sharing it in chat/logs and rotate if exposed.
+
 ---
 
 ## Testing

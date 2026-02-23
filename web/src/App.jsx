@@ -28,6 +28,8 @@ function useApi(token) {
     registerModel: (payload) => json('/api/models/register', { method:'POST', body:JSON.stringify(payload) }),
     deleteModel: (model) => json(`/api/models/catalog/${encodeURIComponent(model)}`, { method:'DELETE' }),
     upsertProvider: (payload) => json('/api/providers/upsert', { method:'POST', body:JSON.stringify(payload) }),
+    setConcurrency: (payload) => json('/api/concurrency', { method:'POST', body:JSON.stringify(payload) }),
+    featherAdvice: (model, planLimit=4) => json(`/api/featherless/advice?model=${encodeURIComponent(model)}&planLimit=${planLimit}`),
     backup: () => json('/api/config/backup', { method:'POST' }),
     restart: () => json('/api/gateway/restart', { method:'POST' }),
     testModel: (payload) => json('/api/models/test', { method:'POST', body:JSON.stringify(payload) }),
@@ -64,8 +66,10 @@ export default function App(){
   const [audit, setAudit] = useState('');
   const [preview, setPreview] = useState('');
   const [testOut, setTestOut] = useState('');
+  const [advice, setAdvice] = useState(null);
   const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
+  const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
   const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
   const [provider, setProvider] = useState({ id:'featherless', baseUrl:'https://api.featherless.ai/v1', api:'openai-completions', apiKey:'' });
 
@@ -74,6 +78,7 @@ export default function App(){
   const load = async () => {
     const [s, b, m] = await Promise.all([api.getState(), api.getBackups(), api.me()]);
     setState(s); setBackups(b.items || []); setMe(m.user);
+    setConcurrency({ maxConcurrent: s.maxConcurrent || 1, subagentsMaxConcurrent: s.subagentMaxConcurrent || 1 });
     if (m.user?.role === 'admin') {
       const u = await api.users();
       setUsers(u.users || []);
@@ -153,6 +158,19 @@ export default function App(){
           <input value={form.modelId} onChange={e=>setForm({...form,modelId:e.target.value})} placeholder='model id' />
           <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder='name' />
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>
+
+          <hr style={{borderColor:'#2c3e75', width:'100%'}} />
+          <h4 style={{margin:'4px 0'}}>Featherless Concurrency Safety</h4>
+          <div className='muted'>For Feather Premium (4 units): Kimi-K2.5 usually costs 4 units/request, DeepSeek/GLM often cost 1 unit/request.</div>
+          <div className='row'>
+            <input type='number' min='1' max='20' value={concurrency.maxConcurrent} onChange={e=>setConcurrency({...concurrency,maxConcurrent:Number(e.target.value)})} />
+            <input type='number' min='1' max='20' value={concurrency.subagentsMaxConcurrent} onChange={e=>setConcurrency({...concurrency,subagentsMaxConcurrent:Number(e.target.value)})} />
+            <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.setConcurrency(concurrency),'Concurrency updated')}>Save Concurrency</button>
+          </div>
+          <div className='row'>
+            <button className='btn secondary' disabled={busy||!test.model} onClick={async()=>{const r=await api.featherAdvice(test.model,4);setAdvice(r);}}>Check Feather Advice</button>
+          </div>
+          <div className='code'>{advice ? `Model cost: ${advice.modelConcurrencyCost} units | Safe maxConcurrent: ${advice.safeMaxConcurrent}\n${advice.warning || 'Current settings look safe.'}` : 'Select a model and click Check Feather Advice.'}</div>
         </div>
       </div>
 

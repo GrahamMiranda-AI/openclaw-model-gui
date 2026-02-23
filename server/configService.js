@@ -181,6 +181,18 @@ function deleteCatalogModel(full) {
   logAudit('deleteCatalogModel', { full });
 }
 
+function setConcurrency({ maxConcurrent = 1, subagentsMaxConcurrent = 1 }) {
+  snapshotConfig('set-concurrency');
+  const cfg = readConfig();
+  cfg.agents = ensure(cfg, 'agents', {});
+  cfg.agents.defaults = ensure(cfg.agents, 'defaults', {});
+  cfg.agents.defaults.maxConcurrent = Number(maxConcurrent);
+  cfg.agents.defaults.subagents = ensure(cfg.agents.defaults, 'subagents', {});
+  cfg.agents.defaults.subagents.maxConcurrent = Number(subagentsMaxConcurrent);
+  writeConfig(cfg);
+  logAudit('setConcurrency', { maxConcurrent, subagentsMaxConcurrent });
+}
+
 module.exports = {
   CONFIG_PATH,
   BACKUP_DIR,
@@ -197,5 +209,6 @@ module.exports = {
   clearFallbacks,
   registerModel,
   upsertProvider,
-  deleteCatalogModel
+  deleteCatalogModel,
+  setConcurrency
 };

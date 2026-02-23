@@ -73,7 +73,13 @@ app.delete('/api/users/:username', adminRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/models/state', (_, res) => res.json(service.getModelState()));
+app.get('/api/models/state', (_, res) => {
+  const state = service.getModelState();
+  const cfg = service.readConfig();
+  const maxConcurrent = cfg?.agents?.defaults?.maxConcurrent ?? null;
+  const subagentMaxConcurrent = cfg?.agents?.defaults?.subagents?.maxConcurrent ?? null;
+  res.json({ ...state, maxConcurrent, subagentMaxConcurrent });
+});
 app.get('/api/config/backups', (req, res) => {
   const limit = Number(req.query.limit || 30);
   res.json({ items: service.listBackups(limit) });
@@ -123,6 +129,11 @@ app.post('/api/providers/upsert', adminRequired, (req, res) => {
   service.upsertProvider(payload);
   res.json({ ok: true });
 });
+app.post('/api/concurrency', adminRequired, (req, res) => {
+  const payload = z.object({ maxConcurrent: z.number().min(1).max(20), subagentsMaxConcurrent: z.number().min(1).max(20) }).parse(req.body);
+  service.setConcurrency(payload);
+  res.json({ ok: true });
+});
 app.post('/api/config/backup', adminRequired, (_, res) => res.json({ ok: true, backup: service.backupConfig() }));
 app.post('/api/gateway/restart', adminRequired, (_, res) => {
   try {
@@ -154,6 +165,31 @@ app.post('/api/models/test', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/featherless/advice', (req, res) => {
+  const model = String(req.query.model || '');
+  const planLimit = Number(req.query.planLimit || 4);
+  const cfg = service.readConfig();
+  const maxConcurrent = Number(cfg?.agents?.defaults?.maxConcurrent || 1);
+  const subMax = Number(cfg?.agents?.defaults?.subagents?.maxConcurrent || 1);
+
+  const costByModelClass = {
+    'moonshotai/Kimi-K2.5': 4,
+    'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B': 1,
+    'zai-org/GLM-4.6': 1,
+    'zai-org/GLM-4.7': 1
+  };
+
+  const parts = model.split('/');
+  const bare = parts.length >= 2 ? parts.slice(1).join('/') : model;
+  const cost = costByModelClass[bare] || 1;
+  const safeMaxConcurrent = Math.max(1, Math.floor(planLimit / cost));
+  const warning = maxConcurrent > safeMaxConcurrent || subMax > safeMaxConcurrent
+    ? `Current concurrency may exceed safe value for this model. Recommended maxConcurrent/subagents.maxConcurrent <= ${safeMaxConcurrent}.`
+    : null;
+
+  res.json({ model, planLimit, modelConcurrencyCost: cost, safeMaxConcurrent, current: { maxConcurrent, subMax }, warning });
 });
 
 app.get('/api/logs', (req, res) => {

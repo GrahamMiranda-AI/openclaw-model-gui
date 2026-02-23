@@ -54,4 +54,15 @@ function deleteUser(username) {
   writeUsers(db);
 }
 
-module.exports = { USERS_PATH, authenticate, listUsers, upsertUser, deleteUser };
+function changePassword({ username, currentPassword, newPassword, adminOverride = false }) {
+  const db = readUsers();
+  const idx = db.users.findIndex((u) => u.username === username);
+  if (idx < 0) throw new Error('User not found');
+  if (!adminOverride && db.users[idx].passwordHash !== hash(currentPassword || '')) {
+    throw new Error('Current password is incorrect');
+  }
+  db.users[idx].passwordHash = hash(newPassword);
+  writeUsers(db);
+}
+
+module.exports = { USERS_PATH, authenticate, listUsers, upsertUser, deleteUser, changePassword };

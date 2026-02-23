@@ -193,6 +193,34 @@ function setConcurrency({ maxConcurrent = 1, subagentsMaxConcurrent = 1 }) {
   logAudit('setConcurrency', { maxConcurrent, subagentsMaxConcurrent });
 }
 
+function getAgentModels() {
+  const cfg = readConfig();
+  const list = Array.isArray(cfg?.agents?.list) ? cfg.agents.list : [];
+  return list.map((a) => {
+    const id = a.id;
+    const primary = a?.model?.primary || cfg?.agents?.defaults?.model?.primary || null;
+    const fallbacks = a?.model?.fallbacks || cfg?.agents?.defaults?.model?.fallbacks || [];
+    return { id, name: a.name || id, primary, fallbacks };
+  });
+}
+
+function setAgentPrimary({ agentId, model }) {
+  snapshotConfig('set-agent-primary');
+  const cfg = readConfig();
+  cfg.agents = ensure(cfg, 'agents', {});
+  cfg.agents.defaults = ensure(cfg.agents, 'defaults', {});
+  cfg.agents.defaults.models = ensure(cfg.agents.defaults, 'models', {});
+  if (!cfg.agents.defaults.models[model]) cfg.agents.defaults.models[model] = {};
+  const list = Array.isArray(cfg.agents.list) ? cfg.agents.list : [];
+  const idx = list.findIndex((a) => a.id === agentId);
+  if (idx < 0) throw new Error(`Agent not found: ${agentId}`);
+  list[idx].model = list[idx].model || {};
+  list[idx].model.primary = model;
+  cfg.agents.list = list;
+  writeConfig(cfg);
+  logAudit('setAgentPrimary', { agentId, model });
+}
+
 module.exports = {
   CONFIG_PATH,
   BACKUP_DIR,
@@ -210,5 +238,7 @@ module.exports = {
   registerModel,
   upsertProvider,
   deleteCatalogModel,
-  setConcurrency
+  setConcurrency,
+  getAgentModels,
+  setAgentPrimary
 };

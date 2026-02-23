@@ -69,6 +69,13 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => res.json({ user: req.user }));
+app.post('/api/auth/change-password', (req, res) => {
+  const payload = z.object({ currentPassword: z.string().optional(), newPassword: z.string().min(8), username: z.string().optional() }).parse(req.body);
+  const target = payload.username || req.user.username;
+  const adminOverride = req.user?.role === 'admin' && !!payload.username && payload.username !== req.user.username;
+  authService.changePassword({ username: target, currentPassword: payload.currentPassword, newPassword: payload.newPassword, adminOverride });
+  res.json({ ok: true });
+});
 app.get('/api/users', adminRequired, (_, res) => res.json({ users: authService.listUsers() }));
 app.post('/api/users', adminRequired, (req, res) => {
   const payload = z.object({ username: z.string().min(1), password: z.string().min(6), role: z.enum(['admin', 'viewer']) }).parse(req.body);
@@ -105,6 +112,15 @@ app.post('/api/config/restore-preview', adminRequired, (req, res) => {
 app.post('/api/config/restore', adminRequired, (req, res) => {
   const { file } = z.object({ file: z.string().min(3) }).parse(req.body);
   service.restoreBackup(file);
+  res.json({ ok: true });
+});
+
+app.get('/api/agents/models', (req, res) => {
+  res.json({ items: service.getAgentModels() });
+});
+app.post('/api/agents/models', adminRequired, (req, res) => {
+  const payload = z.object({ agentId: z.string().min(1), model: z.string().min(3) }).parse(req.body);
+  service.setAgentPrimary(payload);
   res.json({ ok: true });
 });
 

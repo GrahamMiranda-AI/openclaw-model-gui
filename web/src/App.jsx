@@ -17,7 +17,10 @@ function useApi(token) {
     users: () => json('/api/users'),
     saveUser: (payload) => json('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
     delUser: (username) => json(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
+    changePassword: (payload) => json('/api/auth/change-password', { method:'POST', body: JSON.stringify(payload) }),
     getState: () => json('/api/models/state'),
+    getAgentModels: () => json('/api/agents/models'),
+    setAgentModel: (payload) => json('/api/agents/models', { method:'POST', body: JSON.stringify(payload) }),
     cronEnable: (id) => json(`/api/automation/cron/${encodeURIComponent(id)}/enable`, { method:'POST' }),
     cronDisable: (id) => json(`/api/automation/cron/${encodeURIComponent(id)}/disable`, { method:'POST' }),
     cronDisableAll: () => json('/api/automation/cron/disable-all', { method:'POST' }),
@@ -82,6 +85,9 @@ export default function App(){
   const [planCapacity, setPlanCapacity] = useState(4);
   const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
   const [cronJobs, setCronJobs] = useState([]);
+  const [agentModels, setAgentModels] = useState([]);
+  const [agentEdit, setAgentEdit] = useState({ agentId:'', model:'' });
+  const [pw, setPw] = useState({ currentPassword:'', newPassword:'', targetUser:'' });
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
   const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
@@ -90,9 +96,13 @@ export default function App(){
   const isAdmin = me?.role === 'admin';
 
   const load = async () => {
-    const [s, b, m] = await Promise.all([api.getState(), api.getBackups(), api.me()]);
+    const [s, b, m, ag] = await Promise.all([api.getState(), api.getBackups(), api.me(), api.getAgentModels()]);
     setState(s); setBackups(b.items || []); setMe(m.user);
     setCronJobs(s.cron || []);
+    setAgentModels(ag.items || []);
+    if ((ag.items || []).length && !agentEdit.agentId) {
+      setAgentEdit({ agentId: ag.items[0].id, model: ag.items[0].primary || s.primary || '' });
+    }
     setConcurrency({ maxConcurrent: s.maxConcurrent || 1, subagentsMaxConcurrent: s.subagentMaxConcurrent || 1 });
     if (m.user?.role === 'admin') {
       const u = await api.users();
@@ -168,6 +178,25 @@ export default function App(){
     </div>
 
     <div className='card'>
+      <h3>Per-Agent Model Routing</h3>
+      <div className='muted'>Set a specific primary model per agent (overrides defaults for that agent only).</div>
+      <div className='row' style={{marginTop:8}}>
+        <select value={agentEdit.agentId} onChange={e=>{
+          const id=e.target.value; const a=agentModels.find(x=>x.id===id); setAgentEdit({agentId:id, model:a?.primary || state.primary || ''});
+        }}>
+          {agentModels.map(a => <option key={a.id} value={a.id}>{a.name} ({a.id})</option>)}
+        </select>
+        <select value={agentEdit.model} onChange={e=>setAgentEdit({...agentEdit, model:e.target.value})}>
+          {state.catalog.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <button className='btn' disabled={!isAdmin||busy||!agentEdit.agentId||!agentEdit.model} onClick={()=>run(()=>api.setAgentModel(agentEdit),'Agent model updated')}>Save Agent Model</button>
+      </div>
+      <table className='table' style={{marginTop:8}}><thead><tr><th>Agent</th><th>Primary</th><th>Fallbacks</th></tr></thead><tbody>
+        {agentModels.map(a => <tr key={a.id}><td>{a.name}</td><td>{a.primary || '-'}</td><td>{(a.fallbacks||[]).join(', ') || '-'}</td></tr>)}
+      </tbody></table>
+    </div>
+
+    <div className='card'>
       <h3>Primary + Fallback</h3>
       <div className='row'><strong>Primary:</strong> {state.primary}<span className='badge'>Fallbacks: {state.fallbacks.length}</span></div>
       <div className='grid grid-2' style={{marginTop:8}}>
@@ -210,7 +239,7 @@ export default function App(){
           <button className='btn' disabled={!isAdmin||busy} onClick={()=>run(()=>api.registerModel(form),'Model registered')}>Register Model</button>
 
           <hr style={{borderColor:'#2c3e75', width:'100%'}} />
-          <h4 style={{margin:'4px 0'}}>Featherless Concurrency Safety</h4>
+          <h4 style={{margin:'4px 0'}}>Concurrency Safety</h4>
           <div className='muted'>Generic capacity guidance: different models/providers consume different request capacity. Set conservative concurrency and validate with Capacity Advice + live test calls.</div>
           <div className='row'>
             <input type='number' min='1' max='20' value={concurrency.maxConcurrent} onChange={e=>setConcurrency({...concurrency,maxConcurrent:Number(e.target.value)})} />
@@ -255,6 +284,27 @@ export default function App(){
         <h3>Audit Log</h3>
         <div className='row'><button className='btn secondary' onClick={async()=>setAudit((await api.logs('audit')).text)}>Refresh</button></div>
         <div className='code'>{audit || 'No audit logs loaded yet.'}</div>
+      </div>
+    </div>
+
+    <div className='card'>
+      <h3>Password & Access</h3>
+      <div className='grid grid-2'>
+        <div>
+          <h4>Change My Password</h4>
+          <input type='password' placeholder='Current password' value={pw.currentPassword} onChange={e=>setPw({...pw,currentPassword:e.target.value})} />
+          <input type='password' placeholder='New password (min 8)' value={pw.newPassword} onChange={e=>setPw({...pw,newPassword:e.target.value})} />
+          <button className='btn' disabled={busy || !pw.currentPassword || !pw.newPassword} onClick={()=>run(()=>api.changePassword({currentPassword:pw.currentPassword,newPassword:pw.newPassword}),'Password changed')}>Update My Password</button>
+        </div>
+        {isAdmin && <div>
+          <h4>Admin Reset User Password</h4>
+          <select value={pw.targetUser} onChange={e=>setPw({...pw,targetUser:e.target.value})}>
+            <option value=''>Select user</option>
+            {users.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+          </select>
+          <input type='password' placeholder='New password (min 8)' value={pw.newPassword} onChange={e=>setPw({...pw,newPassword:e.target.value})} />
+          <button className='btn secondary' disabled={busy || !pw.targetUser || !pw.newPassword} onClick={()=>run(()=>api.changePassword({username:pw.targetUser,newPassword:pw.newPassword}),'User password reset')}>Reset User Password</button>
+        </div>}
       </div>
     </div>
 

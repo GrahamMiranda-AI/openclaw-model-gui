@@ -14,6 +14,8 @@ const sessions = new Map();
 app.use(express.json());
 
 function authRequired(req, res, next) {
+  // Allow frontend assets and index page; protect API routes.
+  if (!req.path.startsWith('/api/')) return next();
   if (req.path === '/api/health' || req.path === '/api/auth/login') return next();
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   const session = sessions.get(token);

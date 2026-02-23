@@ -18,6 +18,10 @@ function useApi(token) {
     saveUser: (payload) => json('/api/users', { method: 'POST', body: JSON.stringify(payload) }),
     delUser: (username) => json(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' }),
     getState: () => json('/api/models/state'),
+    cronEnable: (id) => json(`/api/automation/cron/${encodeURIComponent(id)}/enable`, { method:'POST' }),
+    cronDisable: (id) => json(`/api/automation/cron/${encodeURIComponent(id)}/disable`, { method:'POST' }),
+    cronDisableAll: () => json('/api/automation/cron/disable-all', { method:'POST' }),
+    lowTrafficMode: () => json('/api/automation/low-traffic-mode', { method:'POST' }),
     getBackups: () => json('/api/config/backups'),
     restorePreview: (file) => json('/api/config/restore-preview', { method:'POST', body: JSON.stringify({ file }) }),
     restoreBackup: (file) => json('/api/config/restore', { method: 'POST', body: JSON.stringify({ file }) }),
@@ -71,6 +75,7 @@ export default function App(){
   const [advice, setAdvice] = useState(null);
   const [selfcheck, setSelfcheck] = useState(null);
   const [newUser, setNewUser] = useState({ username:'', password:'', role:'viewer' });
+  const [cronJobs, setCronJobs] = useState([]);
   const [test, setTest] = useState({ model:'', prompt:'Hello from OpenClaw GUI' });
   const [concurrency, setConcurrency] = useState({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
   const [form, setForm] = useState({ providerId:'featherless', modelId:'moonshotai/Kimi-K2.5', name:'Kimi K2.5', contextWindow:32000, maxTokens:4096 });
@@ -81,6 +86,7 @@ export default function App(){
   const load = async () => {
     const [s, b, m] = await Promise.all([api.getState(), api.getBackups(), api.me()]);
     setState(s); setBackups(b.items || []); setMe(m.user);
+    setCronJobs(s.cron || []);
     setConcurrency({ maxConcurrent: s.maxConcurrent || 1, subagentsMaxConcurrent: s.subagentMaxConcurrent || 1 });
     if (m.user?.role === 'admin') {
       const u = await api.users();
@@ -119,6 +125,23 @@ export default function App(){
     </div>
 
     {!!msg && <div className='card'><div className={msg.startsWith('Error') ? 'err':'ok'}>{msg}</div></div>}
+
+    <div className='card'>
+      <h3>Traffic & Automation Controls</h3>
+      <div className='row'>
+        <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.lowTrafficMode(),'Low-traffic mode enabled (cron paused, concurrency=1)')}>Enable Low-Traffic Mode</button>
+        <button className='btn danger' disabled={!isAdmin||busy} onClick={()=>run(()=>api.cronDisableAll(),'All cron jobs disabled')}>Disable All Cron Jobs</button>
+      </div>
+      <table className='table' style={{marginTop:8}}>
+        <thead><tr><th>Name</th><th>ID</th><th>Enabled</th><th>Action</th></tr></thead>
+        <tbody>{cronJobs.map(j => <tr key={j.id}><td>{j.name || '(unnamed)'}</td><td>{j.id}</td><td>{String(j.enabled)}</td><td>
+          {j.enabled
+            ? <button className='btn danger' disabled={!isAdmin||busy} onClick={()=>run(()=>api.cronDisable(j.id),'Cron disabled')}>Disable</button>
+            : <button className='btn secondary' disabled={!isAdmin||busy} onClick={()=>run(()=>api.cronEnable(j.id),'Cron enabled')}>Enable</button>}
+        </td></tr>)}</tbody>
+      </table>
+      <p className='muted'>Tip: most extra API usage comes from cron + heartbeat workflows and overlapping runs. Pause cron when testing or during spikes.</p>
+    </div>
 
     <div className='card'>
       <h3>Preflight Safety Checks</h3>

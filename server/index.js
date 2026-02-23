@@ -4,6 +4,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { z } = require('zod');
 const { execSync } = require('child_process');
+
+function runJson(cmd) {
+  const out = execSync(cmd, { encoding: 'utf8' });
+  try { return JSON.parse(out); } catch { return null; }
+}
 const service = require('./configService');
 const authService = require('./authService');
 
@@ -80,7 +85,9 @@ app.get('/api/models/state', (_, res) => {
   const cfg = service.readConfig();
   const maxConcurrent = cfg?.agents?.defaults?.maxConcurrent ?? null;
   const subagentMaxConcurrent = cfg?.agents?.defaults?.subagents?.maxConcurrent ?? null;
-  res.json({ ...state, maxConcurrent, subagentMaxConcurrent });
+  let cron = [];
+  try { cron = (runJson('openclaw cron list --json') || {}).jobs || []; } catch {}
+  res.json({ ...state, maxConcurrent, subagentMaxConcurrent, cron });
 });
 app.get('/api/config/backups', (req, res) => {
   const limit = Number(req.query.limit || 30);
@@ -145,6 +152,30 @@ app.post('/api/gateway/restart', adminRequired, (_, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.post('/api/automation/cron/:id/enable', adminRequired, (req, res) => {
+  execSync(`openclaw cron enable ${req.params.id}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/automation/cron/:id/disable', adminRequired, (req, res) => {
+  execSync(`openclaw cron disable ${req.params.id}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/automation/cron/disable-all', adminRequired, (req, res) => {
+  const jobs = (runJson('openclaw cron list --json') || {}).jobs || [];
+  for (const j of jobs) if (j.enabled) execSync(`openclaw cron disable ${j.id}`);
+  res.json({ ok: true, disabled: jobs.length });
+});
+
+app.post('/api/automation/low-traffic-mode', adminRequired, (req, res) => {
+  // Low-traffic mode: strict concurrency + disable all cron bursts.
+  service.setConcurrency({ maxConcurrent: 1, subagentsMaxConcurrent: 1 });
+  const jobs = (runJson('openclaw cron list --json') || {}).jobs || [];
+  for (const j of jobs) if (j.enabled) execSync(`openclaw cron disable ${j.id}`);
+  res.json({ ok: true, disabledCronJobs: jobs.filter(j=>j.enabled).map(j=>j.id) });
 });
 
 app.post('/api/presets/feather-premium-kimi', adminRequired, (req, res) => {

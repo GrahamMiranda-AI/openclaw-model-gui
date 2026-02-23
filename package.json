@@ -1,0 +1,28 @@
+{
+  "name": "openclaw-model-gui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Modern model control panel for OpenClaw",
+  "author": "Graham Miranda <https://www.grahammiranda.com/>",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "nodemon server/index.js",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build",
+    "start": "node server/index.js",
+    "test": "node --test server/tests/*.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.0.0"
+  }
+}
